@@ -14,6 +14,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class LGS {
@@ -41,19 +42,29 @@ public class LGS {
     private static final String CMD_VALUES = "values";
     private static final String CMD_RELOAD = "reload";
     private static final String CMD_LOAD = "load";
+    private static final String CMD_EXPORT = "export";
+
+    private String curveFitterType;
+
+    public static final Logger logger = LoggerFactory.getLogger(LGS.class);
 
     public static void main(String[] args) {
         new LGS();
     }
 
     public LGS() {
-        final Logger logger = LoggerFactory.getLogger(LGS.class);
-
         try {
             File file = new File(System.getProperty("user.dir") + "/config/config.properties");
 
-            if(!file.exists()) {
-                file.createNewFile();
+            if (!file.exists()) {
+                boolean successfull = file.createNewFile();
+
+                if (successfull) {
+                    logger.info("Config file created!");
+                } else {
+                    logger.error("Failed to create config file!");
+                    return;
+                }
             }
 
             this.config = new PropertyConfiguration(file);
@@ -79,7 +90,7 @@ public class LGS {
 
             while (true) {
                 logger.info("Input Fish Size to get Fish Price or another command: " +
-                        "print, sizes, prices, degree, coefficients, values, reload, exit");
+                        "print, sizes, prices, degree, coefficients, values, reload, export, exit");
 
                 String input = scanner.next();
 
@@ -118,6 +129,9 @@ public class LGS {
                         this.fileName = scanner.next();
                         getOrReloadData(this.fileName);
                         continue;
+                    case CMD_EXPORT:
+                        exportCalcFunc();
+                        continue;
                     default:
                         try {
                             int x = Integer.parseInt(input);
@@ -133,7 +147,7 @@ public class LGS {
         }
     }
 
-    private double[] solve(List<Integer> xValues, List<Integer> yValues, PolynomialCurveFitter fitter) {
+    private double[] solve(List<Integer> xValues, List<Integer> yValues, AbstractCurveFitter fitter) {
         WeightedObservedPoints obs = new WeightedObservedPoints();
 
         for (int i = 0; i < xValues.size(); i++) {
@@ -152,7 +166,17 @@ public class LGS {
 
         this.degree = xValues.size();
 
-        this.coefficients = solve(xValues, yValues, PolynomialCurveFitter.create(Math.min(degree, config.getInt("maxFuncDegree", 100))));
+        String curveFitter = config.getString("curveFitterType", "polynomial");
+
+        AbstractCurveFitter fitter = switch (curveFitter) {
+            case "gaussian" -> GaussianCurveFitter.create();
+            case "harmonic" -> HarmonicCurveFitter.create();
+            default -> PolynomialCurveFitter.create(Math.min(degree, config.getInt("maxFuncDegree", 100)));
+        };
+
+        this.curveFitterType = curveFitter;
+
+        this.coefficients = solve(xValues, yValues, fitter);
 
         this.polynomialFunction = new PolynomialFunction(this.coefficients);
     }
@@ -179,10 +203,50 @@ public class LGS {
         if (!Files.exists(folderPath)) {
             try {
                 Files.createDirectories(folderPath);
-                System.out.println("Config folder created!");
+                logger.info("Config folder created!");
             } catch (IOException e) {
                 throw new RuntimeException("Failed to create config folder!", e);
             }
+        }
+    }
+
+    private void exportCalcFunc() {
+        Path folderPath = Path.of(System.getProperty("user.dir") + "/config/export/");
+
+        if(!Files.exists(folderPath)) {
+            try {
+                Files.createDirectories(folderPath);
+                logger.info("Export folder created!");
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to create export folder!", e);
+            }
+        }
+
+        Date date = new Date() ;
+        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH-mm-ss") ;
+
+        Path exportFilePath = Path.of(System.getProperty("user.dir") + "/config/export/" + fileName + "_func_export_" + curveFitterType + "_" + dateFormat.format(date)  + ".txt");
+
+        if(!Files.exists(exportFilePath)) {
+            try {
+                Files.createFile(exportFilePath);
+                logger.info("Export file created!");
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to create export file!", e);
+            }
+        }
+
+        try (BufferedWriter writer = Files.newBufferedWriter(exportFilePath, StandardCharsets.UTF_8)) {
+            writer.write("Function Formula (Wolfram Alpha Compatible): " + polynomialFunction.toString() + "\n");
+            writer.write("Function Degree: " + polynomialFunction.degree() + "\n");
+            writer.write("Function Coefficients: " + Arrays.toString(coefficients) + "\n");
+            writer.write("Function Values: " + values + "\n");
+
+            writer.flush();
+
+            logger.info("Written export file!");
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to write export file!", e);
         }
     }
 }
