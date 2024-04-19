@@ -135,7 +135,7 @@ public class LGS {
                     default:
                         try {
                             int x = Integer.parseInt(input);
-                            logger.info("Approximate Fish Price: {}", polynomialFunction.value(x));
+                            logger.info("Approximate Fish Price: {}", config.getBoolean("roundNextUp", true) ? roundDoubleToUpperInt(polynomialFunction.value(x)) : polynomialFunction.value(x));
                         } catch (NumberFormatException e) {
                             logger.info("Invalid input. Please enter a valid command or Fish Size.");
                         }
@@ -259,5 +259,9 @@ public class LGS {
         } catch (IOException e) {
             throw new RuntimeException("Failed to write export file!", e);
         }
+    }
+
+    private int roundDoubleToUpperInt(double d){
+        return (d%1==0.0f)?(int)d:(int)(d+1);
     }
 }
