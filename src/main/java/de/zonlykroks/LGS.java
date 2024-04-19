@@ -1,12 +1,11 @@
 package de.zonlykroks;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.stream.JsonReader;
 import de.maxhenkel.simpleconfig.Configuration;
 import de.maxhenkel.simpleconfig.PropertyConfiguration;
+import org.apache.commons.io.IOUtils;
 import org.apache.commons.math3.analysis.polynomials.PolynomialFunction;
 import org.apache.commons.math3.fitting.*;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,8 +27,6 @@ public class LGS {
 
     private String fileName;
 
-    private final Gson GSON = new GsonBuilder().serializeNulls().setPrettyPrinting().create();
-
     private Configuration config;
 
     // Constants for command strings
@@ -46,30 +43,23 @@ public class LGS {
 
     private String curveFitterType;
 
-    public static final Logger logger = LoggerFactory.getLogger(LGS.class);
+    private final String userDir = System.getProperty("user.dir");
+
+    private static final Logger logger = LoggerFactory.getLogger(LGS.class);
 
     public static void main(String[] args) {
         new LGS();
     }
 
     public LGS() {
+        setupFolders();
+
         try {
-            createConfigFolder();
+            Path path = Paths.get(this.userDir + "/config/config.properties");
 
-            File file = new File(System.getProperty("user.dir") + "/config/config.properties");
+            tryCreateFile(path);
 
-            if (!file.exists()) {
-                boolean successfull = file.createNewFile();
-
-                if (successfull) {
-                    logger.info("Config file created!");
-                } else {
-                    logger.error("Failed to create config file!");
-                    return;
-                }
-            }
-
-            this.config = new PropertyConfiguration(file);
+            this.config = new PropertyConfiguration(new File(String.valueOf(path)));
         }catch (IOException e) {
             logger.error("Failed to load config file: {}", e.getMessage());
             return;
@@ -160,6 +150,11 @@ public class LGS {
 
 
     public void getOrReloadData(String fileName) throws IOException {
+        if(!Files.exists(Paths.get(this.userDir + "/config/datasets/" + fileName + ".json5"))) {
+            logger.error("File not found! Please input a valid file name. Aborting!");
+            throw new IllegalArgumentException("File {} was not found in the dataset dir!".replace("{}", fileName));
+        }
+
         this.values = getSizes(fileName);
 
         this.xValues = Collections.unmodifiableList(new ArrayList<>(values.keySet()));
@@ -191,63 +186,27 @@ public class LGS {
     }
 
     private Map<Double, Double> getSizes(String fileName) throws IOException {
-        String path = System.getProperty("user.dir") + "/config/" + fileName + ".json5";
+        String path = this.userDir + "/config/datasets/" + fileName + ".json5";
 
         try (BufferedReader reader = Files.newBufferedReader(Paths.get(path), StandardCharsets.UTF_8)) {
+            JSONObject jsonObject = new JSONObject(IOUtils.toString(reader));
 
-            JsonReader jsonReader = new JsonReader(reader);
-            Map<String, Double> temp = GSON.fromJson(jsonReader, Map.class);
+            Map<Double, Double> toReturn = new HashMap<>();
 
-            Map<Double,Double> finished = new HashMap<>();
-
-            for(Map.Entry<String, Double> entry : temp.entrySet()) {
-                finished.put(Double.parseDouble(entry.getKey()), entry.getValue());
-            }
-
-            temp.clear();
+            jsonObject.keys().forEachRemaining(s -> toReturn.put(Double.parseDouble(s), jsonObject.getDouble(s)));
 
             //Not to be altered
-            return Collections.unmodifiableMap(finished);
-        }
-    }
-
-    private void createConfigFolder() {
-        Path folderPath = Paths.get(System.getProperty("user.dir"), "config");
-        if (!Files.exists(folderPath)) {
-            try {
-                Files.createDirectories(folderPath);
-                logger.info("Config folder created!");
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to create config folder!", e);
-            }
+            return Collections.unmodifiableMap(toReturn);
         }
     }
 
     private void exportCalcFunc() {
-        Path folderPath = Paths.get(System.getProperty("user.dir") + "/config/export/");
-
-        if(!Files.exists(folderPath)) {
-            try {
-                Files.createDirectories(folderPath);
-                logger.info("Export folder created!");
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to create export folder!", e);
-            }
-        }
-
         Date date = new Date() ;
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH-mm-ss") ;
 
-        Path exportFilePath = Paths.get(System.getProperty("user.dir") + "/config/export/" + fileName + "_func_export_" + curveFitterType + "_" + dateFormat.format(date)  + ".txt");
+        Path exportFilePath = Paths.get(this.userDir + "/config/export/" + fileName + "_func_export_" + curveFitterType + "_" + dateFormat.format(date)  + ".txt");
 
-        if(!Files.exists(exportFilePath)) {
-            try {
-                Files.createFile(exportFilePath);
-                logger.info("Export file created!");
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to create export file!", e);
-            }
-        }
+        tryCreateFile(exportFilePath);
 
         try (BufferedWriter writer = Files.newBufferedWriter(exportFilePath, StandardCharsets.UTF_8)) {
             writer.write("Function Formula (Wolfram Alpha Compatible): " + polynomialFunction.toString() + "\n");
@@ -261,5 +220,37 @@ public class LGS {
         } catch (IOException e) {
             throw new RuntimeException("Failed to write export file!", e);
         }
+    }
+
+    private void tryCreateFolder(Path... paths) {
+        for(Path path : paths) {
+            if (!Files.exists(path)) {
+                try {
+                    Files.createDirectories(path);
+                    logger.info("Folder created!");
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to create folder!", e);
+                }
+            }
+        }
+    }
+
+    private void tryCreateFile(Path path) {
+        if (!Files.exists(path)) {
+            try {
+                Files.createFile(path);
+                logger.info("File created!");
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to create file!", e);
+            }
+        }
+    }
+
+    private void setupFolders() {
+        Path configPath = Paths.get(this.userDir, "config");
+        Path exportPath = Paths.get(this.userDir, "/config/export/");
+        Path datasetPath = Paths.get(this.userDir, "/config/datasets/");
+
+        tryCreateFolder(configPath,exportPath,datasetPath);
     }
 }
