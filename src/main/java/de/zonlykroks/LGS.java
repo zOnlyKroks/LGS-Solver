@@ -135,7 +135,8 @@ public class LGS {
                     default:
                         try {
                             int x = Integer.parseInt(input);
-                            logger.info("Approximate Fish Price: {}", config.getBoolean("roundNextUp", true) ? roundDoubleToUpperInt(polynomialFunction.value(x)) : polynomialFunction.value(x));
+                            logger.info("Exact Fish Price: {}", polynomialFunction.value(x));
+                            logger.info("Rounded Fish Price: {}", Math.round(polynomialFunction.value(x)));
                         } catch (NumberFormatException e) {
                             logger.info("Invalid input. Please enter a valid command or Fish Size.");
                         }
@@ -164,7 +165,8 @@ public class LGS {
         this.xValues = Collections.unmodifiableList(new ArrayList<>(values.keySet()));
         this.yValues = Collections.unmodifiableList(new ArrayList<>(values.values()));
 
-        this.degree = xValues.size();
+        int forcedDegree = config.getInt("degree", 3);
+        this.degree = config.getBoolean("auto", true) ? xValues.size() : forcedDegree;
 
         String curveFitter = config.getString("curveFitterType", "polynomial");
 
@@ -259,9 +261,5 @@ public class LGS {
         } catch (IOException e) {
             throw new RuntimeException("Failed to write export file!", e);
         }
-    }
-
-    private int roundDoubleToUpperInt(double d){
-        return (d%1==0.0f)?(int)d:(int)(d+1);
     }
 }
