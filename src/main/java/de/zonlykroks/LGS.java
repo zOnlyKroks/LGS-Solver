@@ -1,8 +1,8 @@
 package de.zonlykroks;
 
-import de.marhali.json5.Json5;
-import de.marhali.json5.Json5Element;
-import de.marhali.json5.Json5Object;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.stream.JsonReader;
 import de.maxhenkel.simpleconfig.Configuration;
 import de.maxhenkel.simpleconfig.PropertyConfiguration;
 import org.apache.commons.math3.analysis.polynomials.PolynomialFunction;
@@ -14,21 +14,21 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class LGS {
     private PolynomialFunction polynomialFunction;
-    private List<Integer> xValues;
-    private List<Integer> yValues;
+    private List<Double> xValues;
+    private List<Double> yValues;
     private int degree;
     private double[] coefficients;
-    private Map<Integer, Integer> values;
+    private Map<Double, Double> values;
 
     private String fileName;
 
-    private final Json5 json5 = Json5.builder(options ->
-            options.allowInvalidSurrogate().quoteSingle().prettyPrinting().build());
+    private final Gson GSON = new GsonBuilder().serializeNulls().setPrettyPrinting().create();
 
     private Configuration config;
 
@@ -54,6 +54,8 @@ public class LGS {
 
     public LGS() {
         try {
+            createConfigFolder();
+
             File file = new File(System.getProperty("user.dir") + "/config/config.properties");
 
             if (!file.exists()) {
@@ -74,8 +76,6 @@ public class LGS {
         }
 
         try (Scanner scanner = new Scanner(System.in)) {
-            createConfigFolder();
-
             logger.info("Welcome to the Fish Price Calculator!");
             logger.info("Made by zOnlyKroks for the StateMC Server");
 
@@ -147,7 +147,7 @@ public class LGS {
         }
     }
 
-    private double[] solve(List<Integer> xValues, List<Integer> yValues, AbstractCurveFitter fitter) {
+    private double[] solve(List<Double> xValues, List<Double> yValues, AbstractCurveFitter fitter) {
         WeightedObservedPoints obs = new WeightedObservedPoints();
 
         for (int i = 0; i < xValues.size(); i++) {
@@ -161,18 +161,25 @@ public class LGS {
     public void getOrReloadData(String fileName) throws IOException {
         this.values = getSizes(fileName);
 
-        this.xValues = List.copyOf(values.keySet());
-        this.yValues = List.copyOf(values.values());
+        this.xValues = Collections.unmodifiableList(new ArrayList<>(values.keySet()));
+        this.yValues = Collections.unmodifiableList(new ArrayList<>(values.values()));
 
         this.degree = xValues.size();
 
         String curveFitter = config.getString("curveFitterType", "polynomial");
 
-        AbstractCurveFitter fitter = switch (curveFitter) {
-            case "gaussian" -> GaussianCurveFitter.create();
-            case "harmonic" -> HarmonicCurveFitter.create();
-            default -> PolynomialCurveFitter.create(Math.min(degree, config.getInt("maxFuncDegree", 100)));
-        };
+        AbstractCurveFitter fitter;
+
+        switch (curveFitter) {
+            case "gaussian":
+                fitter = GaussianCurveFitter.create();
+                break;
+            case "harmonic":
+                fitter = HarmonicCurveFitter.create();
+                break;
+            default:
+                fitter = PolynomialCurveFitter.create(Math.min(degree, config.getInt("maxFuncDegree", 100)));
+        }
 
         this.curveFitterType = curveFitter;
 
@@ -181,25 +188,29 @@ public class LGS {
         this.polynomialFunction = new PolynomialFunction(this.coefficients);
     }
 
-    private Map<Integer, Integer> getSizes(String fileName) throws IOException {
+    private Map<Double, Double> getSizes(String fileName) throws IOException {
         String path = System.getProperty("user.dir") + "/config/" + fileName + ".json5";
 
-        try (BufferedReader reader = Files.newBufferedReader(Path.of(path), StandardCharsets.UTF_8)) {
-            Json5Object json5Element = json5.parse(reader).getAsJson5Object();
+        try (BufferedReader reader = Files.newBufferedReader(Paths.get(path), StandardCharsets.UTF_8)) {
 
-            Map<Integer, Integer> keySetMap = new HashMap<>();
+            JsonReader jsonReader = new JsonReader(reader);
+            Map<String, Double> temp = GSON.fromJson(jsonReader, Map.class);
 
-            for (Map.Entry<String, Json5Element> entry : json5Element.entrySet()) {
-                keySetMap.put(Integer.parseInt(entry.getKey()), entry.getValue().getAsInt());
+            Map<Double,Double> finished = new HashMap<>();
+
+            for(Map.Entry<String, Double> entry : temp.entrySet()) {
+                finished.put(Double.parseDouble(entry.getKey()), entry.getValue());
             }
 
+            temp.clear();
+
             //Not to be altered
-            return Map.copyOf(keySetMap);
+            return Collections.unmodifiableMap(finished);
         }
     }
 
     private void createConfigFolder() {
-        Path folderPath = Path.of(System.getProperty("user.dir"), "config");
+        Path folderPath = Paths.get(System.getProperty("user.dir"), "config");
         if (!Files.exists(folderPath)) {
             try {
                 Files.createDirectories(folderPath);
@@ -211,7 +222,7 @@ public class LGS {
     }
 
     private void exportCalcFunc() {
-        Path folderPath = Path.of(System.getProperty("user.dir") + "/config/export/");
+        Path folderPath = Paths.get(System.getProperty("user.dir") + "/config/export/");
 
         if(!Files.exists(folderPath)) {
             try {
@@ -225,7 +236,7 @@ public class LGS {
         Date date = new Date() ;
         SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd HH-mm-ss") ;
 
-        Path exportFilePath = Path.of(System.getProperty("user.dir") + "/config/export/" + fileName + "_func_export_" + curveFitterType + "_" + dateFormat.format(date)  + ".txt");
+        Path exportFilePath = Paths.get(System.getProperty("user.dir") + "/config/export/" + fileName + "_func_export_" + curveFitterType + "_" + dateFormat.format(date)  + ".txt");
 
         if(!Files.exists(exportFilePath)) {
             try {
